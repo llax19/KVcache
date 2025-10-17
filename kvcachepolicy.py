@@ -7,19 +7,24 @@ class KVCachePolicy:
     """基于伪代码的 GDF/GDFS-Admission 简化策略（统一大小与代价）。
 
     优先级定义（统一 Cost=1, Size=1）：
-        Priority(f) = Clock + Fr(f)
+        Priority(f) = Clock + Fr(f) + PosBonus(f)
 
     - Clock：最近一次被驱逐对象的优先级（单调不减）。
     - Fr(f)：对象被命中次数（首见为 1，命中 +1）。
 
     准入控制（Admission）：当缓存已满时，只有当新对象的 Priority 严格大于当前最小 Priority 时才执行驱逐并接纳新对象；否则直接拒绝缓存该对象（情况 C2）。这与伪代码的“先临时插入再判断是否为最小”等价且更高效。
 
-    注意：当前 `KVCacheStore` 的容量按“项数”计。
+    其中 PosBonus(f) 由本次请求中 key 在 request_prefix_hash_ids 的相对位置决定，靠近列表头部（更“早先”的 token）奖励更高：
+        设 n=len(request_prefix_hash_ids)，i=index(key)（从 0 开始）
+        PosBonus = pos_alpha * ((n - i) / n)
+
+    注意：当前 `KVCacheStore` 的容量按“项数”计。pos_alpha 可调，默认 2。
     """
 
     def __init__(
         self,
         store: KVCacheStore,
+        pos_alpha: float = 1,
     ):
         self.store = store
         # 全局时钟（最近一次被淘汰对象的优先级）
@@ -31,6 +36,8 @@ class KVCachePolicy:
         # 容量（Total）与当前使用（Used，按项数计）
         self.total: int = int(self.store.capacity)
         self.used: int = int(self.store.size())
+        # 位置加成系数
+        self.pos_alpha: float = float(pos_alpha)
 
     # ------------------------------ 公共接口 ------------------------------
     def access(self, key: int, request_prefix_hash_ids, request_type) -> bool:
@@ -49,7 +56,8 @@ class KVCachePolicy:
                 self._meta[key] = meta
 
             meta["freq"] += 1
-            prio = self._calc_priority(meta["freq"])  # Priority = Clock + Fr
+            pos_bonus = self._position_bonus(key, request_prefix_hash_ids)
+            prio = self._calc_priority(meta["freq"], pos_bonus)  # Priority = Clock + Fr + PosBonus
             meta["priority"] = prio
             meta["version"] += 1
             heapq.heappush(self._heap, (prio, meta["version"], key))
@@ -59,7 +67,8 @@ class KVCachePolicy:
         # 2) 未命中：计算新对象优先级
         # ----------------------
         freq = 1
-        prio_new = self._calc_priority(freq)
+        pos_bonus = self._position_bonus(key, request_prefix_hash_ids)
+        prio_new = self._calc_priority(freq, pos_bonus)
 
         # 2.1 空间足够：直接接纳
         if self.used < self.total:
@@ -87,9 +96,25 @@ class KVCachePolicy:
         return list(self._meta.keys())
 
     # ------------------------------ 内部方法 ------------------------------
-    def _calc_priority(self, freq: float) -> float:
-        # 统一 Cost=1, Size=1 时：Priority = Clock + Fr
-        return self.clock + float(freq)
+    def _calc_priority(self, freq: float, pos_bonus: float) -> float:
+        # 统一 Cost=1, Size=1 时：Priority = Clock + Fr + PosBonus
+        return self.clock + float(freq) + float(pos_bonus)
+
+    def _position_bonus(self, key: int, request_prefix_hash_ids) -> float:
+        """基于 key 在本次请求列表中的相对位置计算位置加成（越靠近头部加成越高）。
+
+        设列表长度为 n，key 的索引为 i（0-based）。
+        PosBonus = pos_alpha * ((n - i) / n)。若 key 未出现在列表（理论不该发生），返回 0。
+        """
+        ids = request_prefix_hash_ids or []
+        n = len(ids)
+        if n <= 0:
+            return 0.0
+        try:
+            i = ids.index(key)
+        except ValueError:
+            return 0.0
+        return self.pos_alpha * ((n - i) / n)
 
     def _peek_valid_min(self) -> tuple[float | None, int | None]:
         """返回堆中当前有效的最小 (priority, key)。遇到失效条目时会弹出并继续检查。"""
