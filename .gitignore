@@ -1,3 +1,5 @@
 **/__pycache__/
 .DS_Store
 input_samples/raw/
+config/
+output/

@@ -1,0 +1,3 @@
+tests:
+  - file: "sample1"
+    capacities: [3, 5, 10, 100, 200]

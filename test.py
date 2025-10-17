@@ -3,6 +3,9 @@ import argparse
 from typing import Iterable, List, Tuple
 import os
 import time
+import yaml
+import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 
 from kvcachepolicy import KVCachePolicy
 from kvstore import KVCacheStore
@@ -63,85 +66,131 @@ def evaluate(policy: KVCachePolicy, traces: Iterable[Tuple[List[int], int]]):
     }
 
 
+def plot_and_save_results(
+    dataset_name: str,
+    capacities: List[int],
+    hit_ratios: List[float],
+    output_dir: str,
+    timestamp: str,
+):
+    """Plots hit ratio vs. capacity and saves the figure."""
+    plt.figure()
+    plt.plot(capacities, hit_ratios, marker="o", linestyle="-")
+    plt.title(f"Hit Ratio vs. Capacity for {dataset_name}")
+    plt.xlabel("Capacity")
+    plt.ylabel("Hit Ratio")
+    plt.grid(True, which="both", linestyle="--", linewidth=0.5)
+
+    # Format y-axis as percentage
+    plt.gca().yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1.0))
+
+    # Ensure x-axis ticks are integers
+    plt.xticks(capacities)
+    plt.xticks(rotation=45)
+
+    plt.tight_layout()
+
+    output_filename = f"{dataset_name}_{timestamp}.png"
+    output_path = os.path.join(output_dir, output_filename)
+    plt.savefig(output_path)
+    plt.close()
+    print(f"--- Chart saved to {output_path} ---\n")
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Evaluate KVCachePolicy with input traces."
+        description="Test KVCachePolicy with input samples."
     )
     parser.add_argument(
-        "--sample",
+        "config",
         type=str,
-        default=None,
-        help="Specify a single sample file to test. If not provided, all samples will be tested.",
+        nargs="?",
+        default="config/test.yaml",
+        help="Path to the config YAML file.",
     )
     parser.add_argument(
-        "--capacity",
-        nargs="+",
-        default=["3"],
-        help="Cache capacity. A single int for all samples, or a list of ints matching the number of samples.",
+        "input_dir",
+        type=str,
+        nargs="?",
+        default="input_samples",
+        help="Directory containing input sample files.",
     )
     args = parser.parse_args()
 
-    input_dir = "input_samples"
-    sample_files = []
-
-    if args.sample:
-        # Test a single specified sample file
-        sample_path = os.path.join(input_dir, args.sample)
-        if os.path.isfile(sample_path):
-            sample_files.append(args.sample)
-        else:
-            print(
-                f"Error: Specified sample file '{args.sample}' not found in '{input_dir}'."
-            )
-            return
-    else:
-        # Test all sample files in the directory
-        sample_files = sorted(
-            [
-                f
-                for f in os.listdir(input_dir)
-                if os.path.isfile(os.path.join(input_dir, f)) and f != ".DS_Store"
-            ]
-        )
-
-    if not sample_files:
-        print(f"No sample files found to test in '{input_dir}' directory.")
-        return
+    run_timestamp = time.strftime("%Y%m%d_%H%M%S")
+    output_dir = "output"
+    os.makedirs(output_dir, exist_ok=True)
 
     try:
-        capacities = [int(c) for c in args.capacity]
-    except ValueError:
-        print("Error: All capacity values must be integers.")
+        with open(args.config, "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"Error: Config file not found at '{args.config}'")
+        return
+    except yaml.YAMLError as e:
+        print(f"Error parsing YAML file: {e}")
         return
 
-    if len(capacities) != 1 and len(capacities) != len(sample_files):
-        print(
-            f"Error: --capacity must be a single integer or a list of {len(sample_files)} integers "
-            f"to match the number of sample files."
+    if "tests" not in config or not config["tests"]:
+        print(f"Error: No 'tests' defined in '{args.config}'.")
+        return
+
+    for test_config in config["tests"]:
+        sample_file = test_config.get("file")
+        capacities = test_config.get("capacities", [])
+
+        if not sample_file or not capacities:
+            print(f"Skipping invalid test config: {test_config}")
+            continue
+
+        # Ensure capacities are sorted
+        sorted_capacities = sorted(capacities)
+        if sorted_capacities != capacities:
+            print(
+                f"Warning: Capacities for {sample_file} were not sorted. Processing in ascending order."
+            )
+            capacities = sorted_capacities
+
+        input_path = os.path.join(args.input_dir, sample_file)
+        if not os.path.isfile(input_path):
+            print(f"--- Skipping test for missing file: {sample_file} ---\n")
+            continue
+
+        print(f"==== Testing Dataset: {sample_file} ====")
+
+        results_hit_ratios = []
+        for capacity in capacities:
+            print(f"  --- Running with capacity: {capacity} ---")
+            try:
+                start_time = time.time()
+                traces = load_input(input_path)
+                store = KVCacheStore(capacity=capacity)
+                policy = KVCachePolicy(store=store)
+                stats = evaluate(policy, traces)
+                duration = time.time() - start_time
+
+                results_hit_ratios.append(stats["hit_ratio"])
+
+                print(f"    {'Total requests:':<18}{stats['total']:,}")
+                print(f"    {'Hits:':<18}{stats['hits']:,}")
+                print(f"    {'Misses:':<18}{stats['misses']:,}")
+                print(f"    {'Hit Ratio:':<18}{stats['hit_ratio']:.5%}")
+                print(f"    {'Time elapsed:':<18}{duration:.5f}s")
+
+            except Exception as e:
+                print(
+                    f"    Error processing {sample_file} with capacity {capacity}: {e}"
+                )
+                results_hit_ratios.append(
+                    0
+                )  # Append 0 on error to maintain list length
+            print()
+
+        # Plot results for the current dataset
+        dataset_name = os.path.splitext(sample_file)[0]
+        plot_and_save_results(
+            dataset_name, capacities, results_hit_ratios, output_dir, run_timestamp
         )
-        return
-
-    for i, sample_file in enumerate(sample_files):
-        capacity = capacities[0] if len(capacities) == 1 else capacities[i]
-        input_path = os.path.join(input_dir, sample_file)
-        print(f"=== Testing Sample: {sample_file} (capacity={capacity}) ===")
-        try:
-            start_time = time.time()
-            traces = load_input(input_path)
-            store = KVCacheStore(capacity=capacity)
-            policy = KVCachePolicy(store=store)
-            stats = evaluate(policy, traces)
-            duration = time.time() - start_time
-
-            print(f"  {'Total requests:':<18}{stats['total']:,}")
-            print(f"  {'Hits:':<18}{stats['hits']:,}")
-            print(f"  {'Misses:':<18}{stats['misses']:,}")
-            print(f"  {'Hit Ratio:':<18}{stats['hit_ratio']:.5%}")
-            print(f"  {'Time elapsed:':<18}{duration:.5f}s")
-
-        except Exception as e:
-            print(f"Error processing {sample_file}: {e}")
-        print()
 
 
 if __name__ == "__main__":
