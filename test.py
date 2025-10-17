@@ -177,8 +177,12 @@ def main():
                     policy = S3FIFO(store=store)
                 elif args.policy == "LFU":
                     policy = LFU(store=store)
+                elif args.policy == "GDFS":
+                    policy = GDFS(store=store)
                 elif args.policy == "S3GDFS":
                     policy = S3GDFS(store=store)
+                elif args.policy == "S3FIFO_Attn":
+                    policy = S3FIFO_Attn(store=store)
                 else:
                     raise ValueError(f"Unsupported policy: {args.policy}")
                 stats = evaluate(policy, traces)
@@ -186,12 +190,33 @@ def main():
 
                 results_hit_ratios.append(stats["hit_ratio"])
 
-                print(f"    {'Total requests:':<18}{stats['total']:,}")
-                print(f"    {'Hits:':<18}{stats['hits']:,}")
-                print(f"    {'Misses:':<18}{stats['misses']:,}")
-                print(f"    {'Hit Ratio:':<18}{stats['hit_ratio']:.5%}")
-                print(f"    {'Time elapsed:':<18}{duration:.5f}s")
+                rows = [
+                    ("Total requests", f"{stats['total']:,}"),
+                    ("Hits", f"{stats['hits']:,}"),
+                    ("Misses", f"{stats['misses']:,}"),
+                    ("Hit Ratio", f"{stats['hit_ratio']:.5%}"),
+                    ("Time elapsed", f"{duration:.5f}s"),
+                ]
+                headers = [k for k, _ in rows]
+                values = [v for _, v in rows]
+                widths = [max(len(h), len(v)) for h, v in zip(headers, values)]
 
+                top = "+-" + "-+-".join("-" * w for w in widths) + "-+"
+                sep = "+=" + "=+=".join("=" * w for w in widths) + "=+"
+                header_line = (
+                    "| "
+                    + " | ".join(h.ljust(w) for h, w in zip(headers, widths))
+                    + " |"
+                )
+                value_line = (
+                    "| " + " | ".join(v.rjust(w) for v, w in zip(values, widths)) + " |"
+                )
+
+                print(top)
+                print(header_line)
+                print(sep)
+                print(value_line)
+                print(top)
             except Exception as e:
                 print(
                     f"    Error processing {sample_file} with capacity {capacity}: {e}"
