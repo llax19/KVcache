@@ -1,22 +1,20 @@
-
 class KVCacheStore:
-    def __init__(self, capacity):
+    def __init__(self, capacity: int):
+        if capacity <= 0:
+            raise ValueError("capacity must be positive")
         self.capacity = capacity
-        self.store = {}
+        self._set = set()
 
-    def add(self, prefix_hash_id):
-        if prefix_hash_id in self.store:
-            return
+    def add(self, prefix_hash_id: int):
+        self._set.add(prefix_hash_id)
         if len(self.store) >= self.capacity:
             raise RuntimeError("KVCacheStore is at capacity; cannot add")
-        self.store[prefix_hash_id] = True
-    
-    def delete(self, prefix_hash_id):
-        if prefix_hash_id in self.store:
-            del self.store[prefix_hash_id]
 
-    def contains(self, prefix_hash_id):
-        return prefix_hash_id in self.store
+    def delete(self, prefix_hash_id: int):
+        self._set.discard(prefix_hash_id)
 
-    def size(self):
-        return len(self.store)
+    def contains(self, prefix_hash_id: int) -> bool:
+        return prefix_hash_id in self._set
+
+    def size(self) -> int:
+        return len(self._set)
