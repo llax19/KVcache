@@ -11,52 +11,67 @@
 
 ## 输入数据格式
 
-输入文件每行的含义如下：
+输入文件不再包含容量信息。每一行都是一条请求/访问记录，格式如下：
 
-1. 第 1 行：缓存容量（正整数）。
-2. 第 2 行起：一条请求/访问记录，格式为：`{prefix_hash_id 列表} type`
+`{prefix_hash_id 列表} type`
 
 示例（`input_samples/sample1`）：
 
 ```
-3
 {1,2,3,4} 1
 {1,2,3,4,5} 1
 {1,2,6} 2
 ```
 
 说明：
-- 以上示例中缓存容量为 3。
-- 每条记录的花括号内是该请求的 `prefix_hash_id` 访问序列；空格后的最后一个整数是该请求的 `type`（在 FIFO 策略中忽略）。
-- 评测时会按序逐个访问花括号内的 `prefix_hash_id`，对每次访问统计命中或未命中，并按 FIFO 规则进行插入/淘汰。
+- 缓存容量现在通过命令行参数指定。
+- 每条记录的花括号内是该请求的 `prefix_hash_id` 访问序列；空格后的最后一个整数是该请求的 `type`。
+- 评测时会按序逐个访问花括号内的 `prefix_hash_id`，对每次访问统计命中或未命中，并根据所选策略进行插入/淘汰。
 
 ## 运行评测
 
-- 使用默认示例：
+评测脚本现在通过命令行参数来控制。
 
-```bash
-python3 test.py
-```
+- **评测所有样本文件**（默认容量见文件args）：
+  ```bash
+  python3 test.py
+  ```
 
-- 指定自定义输入文件：
+- **评测所有样本文件，并指定一个统一的容量**：
+  ```bash
+  python3 test.py --capacity 1000
+  ```
 
-```bash
-python3 test.py path/to/your_input_file
-```
+- **仅评测单个指定的样本文件**：
+  ```bash
+  python3 test.py --sample sample1 --capacity 500
+  ```
+
+- **为多个样本文件分别指定容量**：
+  （假设 `input_samples` 目录下按字母顺序有 `sample1`, `sample2` 两个文件）
+  ```bash
+  python3 test.py --capacity 500 1000
+  ```
 
 ## 输出说明
 
-脚本会输出如下四个指标：
+脚本会为每个测试的样本输出如下指标：
 
-- `total`：总请求数
-- `hits`：命中次数
-- `misses`：未命中次数
-- `hit_ratio`：命中率（`hits/total`）
+- `Total requests`: 总请求块数
+- `Hits`: 命中次数
+- `Misses`: 未命中次数
+- `Hit Ratio`: 命中率 (`hits/total`)
+- `Time elapsed`: 运行耗时
 
 示例输出：
 
 ```
-total=12 hits=0 misses=12 hit_ratio=0.0000
+=== Testing Sample: conversation_trace (capacity=1000) ===
+  Total requests:   288,500
+  Hits:             2,004
+  Misses:           286,496
+  Hit Ratio:        0.69%
+  Time elapsed:     0.297s
 ```
 
 ## 请自行预处理一下样例，可用于测试

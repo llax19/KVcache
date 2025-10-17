@@ -1,6 +1,8 @@
 import sys
 import argparse
 from typing import Iterable, List, Tuple
+import os
+import time
 
 from kvcachepolicy import KVCachePolicy
 from kvstore import KVCacheStore
@@ -66,33 +68,80 @@ def main():
         description="Evaluate KVCachePolicy with input traces."
     )
     parser.add_argument(
-        "input_sample",
+        "--sample",
         type=str,
-        nargs="?",
-        default="sample1",
-        help="Path to the input sample file (default: input_samples/sample1)",
+        default=None,
+        help="Specify a single sample file to test. If not provided, all samples will be tested.",
     )
     parser.add_argument(
         "--capacity",
-        type=int,
-        default=3,
-        help="Override cache capacity from input file",
+        nargs="+",
+        default=["3"],
+        help="Cache capacity. A single int for all samples, or a list of ints matching the number of samples.",
     )
     args = parser.parse_args()
 
-    input_path = (
-        args.input_sample
-        if args.input_sample.startswith("input_samples/")
-        else f"input_samples/{args.input_sample}"
-    )
-    traces = load_input(input_path)
-    capacity = args.capacity
-    store = KVCacheStore(capacity=capacity)
-    policy = KVCachePolicy(store=store)
-    stats = evaluate(policy, traces)
-    print(
-        f"total={stats['total']} hits={stats['hits']} misses={stats['misses']} hit_ratio={stats['hit_ratio']:.4f}"
-    )
+    input_dir = "input_samples"
+    sample_files = []
+
+    if args.sample:
+        # Test a single specified sample file
+        sample_path = os.path.join(input_dir, args.sample)
+        if os.path.isfile(sample_path):
+            sample_files.append(args.sample)
+        else:
+            print(
+                f"Error: Specified sample file '{args.sample}' not found in '{input_dir}'."
+            )
+            return
+    else:
+        # Test all sample files in the directory
+        sample_files = sorted(
+            [
+                f
+                for f in os.listdir(input_dir)
+                if os.path.isfile(os.path.join(input_dir, f)) and f != ".DS_Store"
+            ]
+        )
+
+    if not sample_files:
+        print(f"No sample files found to test in '{input_dir}' directory.")
+        return
+
+    try:
+        capacities = [int(c) for c in args.capacity]
+    except ValueError:
+        print("Error: All capacity values must be integers.")
+        return
+
+    if len(capacities) != 1 and len(capacities) != len(sample_files):
+        print(
+            f"Error: --capacity must be a single integer or a list of {len(sample_files)} integers "
+            f"to match the number of sample files."
+        )
+        return
+
+    for i, sample_file in enumerate(sample_files):
+        capacity = capacities[0] if len(capacities) == 1 else capacities[i]
+        input_path = os.path.join(input_dir, sample_file)
+        print(f"=== Testing Sample: {sample_file} (capacity={capacity}) ===")
+        try:
+            start_time = time.time()
+            traces = load_input(input_path)
+            store = KVCacheStore(capacity=capacity)
+            policy = KVCachePolicy(store=store)
+            stats = evaluate(policy, traces)
+            duration = time.time() - start_time
+
+            print(f"  {'Total requests:':<18}{stats['total']:,}")
+            print(f"  {'Hits:':<18}{stats['hits']:,}")
+            print(f"  {'Misses:':<18}{stats['misses']:,}")
+            print(f"  {'Hit Ratio:':<18}{stats['hit_ratio']:.5%}")
+            print(f"  {'Time elapsed:':<18}{duration:.5f}s")
+
+        except Exception as e:
+            print(f"Error processing {sample_file}: {e}")
+        print()
 
 
 if __name__ == "__main__":
