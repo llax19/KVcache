@@ -7,7 +7,7 @@ import yaml
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from kvcachepolicy import KVCachePolicy
+from kvcachepolicy import KVCachePolicy, S3FIFO
 from kvstore import KVCacheStore
 
 
@@ -165,7 +165,7 @@ def main():
                 start_time = time.time()
                 traces = load_input(input_path)
                 store = KVCacheStore(capacity=capacity)
-                policy = KVCachePolicy(store=store)
+                policy = S3FIFO(store=store)
                 stats = evaluate(policy, traces)
                 duration = time.time() - start_time
 
