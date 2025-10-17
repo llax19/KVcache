@@ -1,10 +1,14 @@
 from collections import deque, OrderedDict
+
+
 from kvcachepolicy import KVCachePolicy
 from kvstore import KVCacheStore
 
 
 class GhostFIFO:
-    """Ghost queue: FIFO order + O(1) membership via OrderedDict."""
+    """
+    Ghost queue: FIFO order + O(1) membership via OrderedDict.
+    """
 
     def __init__(self, capacity: int):
         self.capacity = max(1, capacity)
@@ -151,24 +155,6 @@ class S3FIFO(KVCachePolicy):
         """If M exceeds its target size (90%), proactively evict from M to rebalance"""
         while len(self.M) > self.m_capacity:
             self._evictM()
-
-    def _ghost_add(self, key: int):
-        """Add key to the head of G and enforce capacity limits; maintain set for O(1) membership checks"""
-        self.G.appendleft(key)
-        self.G_set.add(key)
-        while len(self.G) > self.ghost_capacity:
-            old = self.G.pop()
-            self.G_set.discard(old)
-
-    def _ghost_remove(self, key: int):
-        """Remove a key from G (if it exists)"""
-        if key in self.G_set:
-            self.G_set.discard(key)
-            # Remove from deque (linear operation), only call if necessary
-            try:
-                self.G.remove(key)
-            except ValueError:
-                pass
 
     def current_keys(self):
         """Return the current resident keys (S head->tail, M head->tail) for debugging/inspection"""
