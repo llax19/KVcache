@@ -1,19 +1,6 @@
 from collections import deque
+from kvcachepolicy.base import KVCachePolicy
 from kvstore import KVCacheStore
-
-
-class KVCachePolicy:
-    """Base class for KV cache policies."""
-
-    def __init__(self, store: KVCacheStore):
-        self.store = store
-
-    def access(self, key: int, request_prefix_hash_ids=None, request_type=None) -> bool:
-        """
-        Access the cache with the given key.
-        Returns True if it's a cache hit, False if it's a miss.
-        """
-        raise NotImplementedError("access method must be implemented by subclasses")
 
 
 class S3FIFO(KVCachePolicy):
@@ -31,8 +18,6 @@ class S3FIFO(KVCachePolicy):
         # Small/Main queues and sets (for O(1) membership checks)
         self.S = deque()  # left is the head, right is the tail
         self.M = deque()
-        self.S_set = set()
-        self.M_set = set()
 
         # Ghost queue and set
         self.G = deque()  # tracks recently evicted keys for adaptive decisions.
@@ -44,8 +29,8 @@ class S3FIFO(KVCachePolicy):
         # Hit frequency (maintained only for resident keys; ghost keys do not have freq)
         self.freq = {}  # key -> int (0..3)
 
-        self.small_target = int(sm_ratio * store.capacity)
-        self.main_target = store.capacity - self.small_target
+        self.s_capacity = int(sm_ratio * store.capacity)
+        self.m_capacity = store.capacity - self.s_capacity
 
     def access(self, key: int, request_prefix_hash_ids=None, request_type=None) -> bool:
         """
@@ -54,14 +39,13 @@ class S3FIFO(KVCachePolicy):
         - On miss: INSERT(x), then freq <- 0
         Returns True/False indicating hit/miss.
         """
-        if key in self.S_set or key in self.M_set:
+        if self.store.contains(key):
             # Cache hit
             self.freq[key] = min(self.freq.get(key, 0) + 1, 3)
             return True
 
         # Cache miss -> INSERT
         self.insert(key)
-        # Set freq to 0 for new insertions
         self.freq[key] = 0
         return False
 
@@ -82,7 +66,7 @@ class S3FIFO(KVCachePolicy):
             # Optional: if S grows too fast, subsequent EVICT will prioritize cleaning S
 
     def evict(self):
-        if len(self.S) >= self.small_target:
+        if len(self.S) >= self.s_capacity:
             self._evictS()
         else:
             self._evictM()
@@ -91,7 +75,7 @@ class S3FIFO(KVCachePolicy):
         """
         Evict from the tail of S
           - If t.freq > 1: move t to M; if M is full, call evictM()
-          - Else: evict t to G and remove t from S and store (a real eviction occurs)
+          - Else: evict t to G and remove t from S (a real eviction occurs)
           - Repeat until a real eviction occurs or S is empty
         """
         evicted = False
@@ -101,17 +85,11 @@ class S3FIFO(KVCachePolicy):
 
             # Remove t from S (both moving and evicting require removal from S first)
             self.S.pop()
-            self.S_set.discard(t)
 
-            if t_freq > 1:
-                # Promote t to M (no change to store residency)
+            if t_freq > 1:  # Promote t to M
                 self.M.appendleft(t)
-                self.M_set.add(t)
-                # If M exceeds its target size, evict from M
                 self._rebalance_M_if_over()
-                # Note: no real eviction occurs in this path (resident count remains unchanged), continue loop
-            else:
-                # Evict t to G (real eviction)
+            else:  # Evict t to G (real eviction)
                 self._ghost_add(t)
                 # Remove t from store
                 self.store.delete(t)
@@ -123,7 +101,7 @@ class S3FIFO(KVCachePolicy):
         """
         Evict from the tail of M
           - If t.freq > 0: rotate t to the head of M and decrement t.freq (no real eviction occurs)
-          - Else: remove t from M and store (real eviction occurs)
+          - Else: remove t from M
           - Repeat until a real eviction occurs or M is empty
         """
         evicted = False
@@ -136,39 +114,32 @@ class S3FIFO(KVCachePolicy):
                 self.M.pop()
                 self.M.appendleft(t)
                 self.freq[t] = t_freq - 1
-                # No real eviction occurs, continue loop
             else:
-                # Real eviction: remove t from M and store, and add t to G
                 self.M.pop()
-                self.M_set.discard(t)
                 self.store.delete(t)
                 self._ghost_add(t)
                 self.freq.pop(t, None)
                 evicted = True
 
-    # --------- Helpers ----------
     def _insert_head_S(self, key: int):
-        """Insert key at the head of S and add it to store and set"""
+        """Insert key at the head of S"""
         self.S.appendleft(key)
-        self.S_set.add(key)
         self.store.add(key)
 
     def _insert_head_M(self, key: int):
-        """Insert key at the head of M and add it to store and set"""
+        """Insert key at the head of M"""
         self.M.appendleft(key)
-        self.M_set.add(key)
         self.store.add(key)
 
     def _rebalance_M_if_over(self):
         """If M exceeds its target size (90%), proactively evict from M to rebalance"""
-        while len(self.M) > self.main_target and self.store.size() > 0:
+        while len(self.M) > self.m_capacity:
             self._evictM()
 
     def _ghost_add(self, key: int):
         """Add key to the head of G and enforce capacity limits; maintain set for O(1) membership checks"""
         self.G.appendleft(key)
         self.G_set.add(key)
-        # Limit G capacity, evict from tail if exceeded
         while len(self.G) > self.ghost_capacity:
             old = self.G.pop()
             self.G_set.discard(old)
