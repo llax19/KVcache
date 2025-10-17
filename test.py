@@ -1,4 +1,5 @@
 import sys
+import argparse
 from typing import Iterable, List, Tuple
 
 from kvcachepolicy import KVCachePolicy
@@ -31,16 +32,15 @@ def parse_sample_line(line: str) -> Tuple[List[int], int]:
     return prefix_ids, req_type
 
 
-def load_input(path: str) -> Tuple[int, List[Tuple[List[int], int]]]:
+def load_input(path: str) -> List[Tuple[List[int], int]]:
     with open(path, "r", encoding="utf-8") as f:
         lines = [ln.strip() for ln in f if ln.strip()]
     if not lines:
         raise ValueError("input file is empty")
-    capacity = int(lines[0])
     traces: List[Tuple[List[int], int]] = []
-    for ln in lines[1:]:
+    for ln in lines:
         traces.append(parse_sample_line(ln))
-    return capacity, traces
+    return traces
 
 
 def evaluate(policy: KVCachePolicy, traces: Iterable[Tuple[List[int], int]]):
@@ -62,12 +62,37 @@ def evaluate(policy: KVCachePolicy, traces: Iterable[Tuple[List[int], int]]):
 
 
 def main():
-    input_path = sys.argv[1] if len(sys.argv) > 1 else "input_samples/sample1"
-    capacity, traces = load_input(input_path)
+    parser = argparse.ArgumentParser(
+        description="Evaluate KVCachePolicy with input traces."
+    )
+    parser.add_argument(
+        "input_sample",
+        type=str,
+        nargs="?",
+        default="sample1",
+        help="Path to the input sample file (default: input_samples/sample1)",
+    )
+    parser.add_argument(
+        "--capacity",
+        type=int,
+        default=3,
+        help="Override cache capacity from input file",
+    )
+    args = parser.parse_args()
+
+    input_path = (
+        args.input_sample
+        if args.input_sample.startswith("input_samples/")
+        else f"input_samples/{args.input_sample}"
+    )
+    traces = load_input(input_path)
+    capacity = args.capacity
     store = KVCacheStore(capacity=capacity)
     policy = KVCachePolicy(store=store)
     stats = evaluate(policy, traces)
-    print(f"total={stats['total']} hits={stats['hits']} misses={stats['misses']} hit_ratio={stats['hit_ratio']:.4f}")
+    print(
+        f"total={stats['total']} hits={stats['hits']} misses={stats['misses']} hit_ratio={stats['hit_ratio']:.4f}"
+    )
 
 
 if __name__ == "__main__":
