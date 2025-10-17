@@ -7,7 +7,7 @@ class KVCacheStore:
 
     def add(self, prefix_hash_id: int):
         self._set.add(prefix_hash_id)
-        if len(self.store) >= self.capacity:
+        if len(self._set) > self.capacity:
             raise RuntimeError("KVCacheStore is at capacity; cannot add")
 
     def delete(self, prefix_hash_id: int):

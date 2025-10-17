@@ -7,8 +7,7 @@ import yaml
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from kvcachepolicy.base import KVCachePolicy
-from kvcachepolicy.s3_fifo import S3FIFO
+from kvcachepolicy import *
 from kvstore import KVCacheStore
 
 
@@ -110,11 +109,18 @@ def main():
         help="Path to the config YAML file.",
     )
     parser.add_argument(
-        "input_dir",
+        "--input_dir",
         type=str,
         nargs="?",
         default="input_samples",
         help="Directory containing input sample files.",
+    )
+    parser.add_argument(
+        "--policy",
+        type=str,
+        nargs="?",
+        default="S3FIFO",
+        help="Cache eviction policy to use.",
     )
     args = parser.parse_args()
 
@@ -166,7 +172,15 @@ def main():
                 start_time = time.time()
                 traces = load_input(input_path)
                 store = KVCacheStore(capacity=capacity)
-                policy = S3FIFO(store=store)
+                # policy = S3FIFOWithGDSAdmission(store=store)
+                if args.policy == "S3FIFO":
+                    policy = S3FIFO(store=store)
+                elif args.policy == "LFU":
+                    policy = LFU(store=store)
+                elif args.policy == "S3GDFS":
+                    policy = S3GDFS(store=store)
+                else:
+                    raise ValueError(f"Unsupported policy: {args.policy}")
                 stats = evaluate(policy, traces)
                 duration = time.time() - start_time
 

@@ -1,6 +1,30 @@
-from collections import deque
-from kvcachepolicy.base import KVCachePolicy
+from collections import deque, OrderedDict
+from kvcachepolicy import KVCachePolicy
 from kvstore import KVCacheStore
+
+
+class GhostFIFO:
+    """Ghost queue: FIFO order + O(1) membership via OrderedDict."""
+
+    def __init__(self, capacity: int):
+        self.capacity = max(1, capacity)
+        self.od = OrderedDict()  # key -> virtual timestamp
+        self.N = 0
+
+    def contains(self, key: int) -> bool:
+        return key in self.od
+
+    def add(self, key: int):
+        self.N += 1
+        # Insert newest; refresh if already exists
+        self.od[key] = self.N
+        self.od.move_to_end(key, last=True)
+        # Enforce capacity
+        while len(self.od) > self.capacity:
+            self.od.popitem(last=False)
+
+    def remove(self, key: int):
+        self.od.pop(key, None)
 
 
 class S3FIFO(KVCachePolicy):
@@ -20,11 +44,7 @@ class S3FIFO(KVCachePolicy):
         self.M = deque()
 
         # Ghost queue and set
-        self.G = deque()  # tracks recently evicted keys for adaptive decisions.
-        self.G_set = set()
-        self.ghost_capacity = (
-            store.capacity  # Ghost queue capacity empirically set to total capacity
-        )
+        self.G = GhostFIFO(capacity=store.capacity)
 
         # Hit frequency (maintained only for resident keys; ghost keys do not have freq)
         self.freq = {}  # key -> int (0..3)
@@ -55,12 +75,10 @@ class S3FIFO(KVCachePolicy):
         ):  # Ensure space (resident cache is not full)
             self.evict()
 
-        if key in self.G_set:
+        if self.G.contains(key):
             self._insert_head_M(key)
-            # Optional: proactively rebalance M if it exceeds its target size
+            self.G.remove(key)
             self._rebalance_M_if_over()
-            # Remove key from G after insertion (optional, prevents G from growing indefinitely)
-            self._ghost_remove(key)
         else:
             self._insert_head_S(key)
             # Optional: if S grows too fast, subsequent EVICT will prioritize cleaning S
@@ -90,10 +108,8 @@ class S3FIFO(KVCachePolicy):
                 self.M.appendleft(t)
                 self._rebalance_M_if_over()
             else:  # Evict t to G (real eviction)
-                self._ghost_add(t)
-                # Remove t from store
+                self.G.add(t)
                 self.store.delete(t)
-                # Remove freq entry for t
                 self.freq.pop(t, None)
                 evicted = True
 
@@ -117,7 +133,7 @@ class S3FIFO(KVCachePolicy):
             else:
                 self.M.pop()
                 self.store.delete(t)
-                self._ghost_add(t)
+                self.G.add(t)
                 self.freq.pop(t, None)
                 evicted = True
 
