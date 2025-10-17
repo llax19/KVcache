@@ -7,7 +7,8 @@ import yaml
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 
-from kvcachepolicy import KVCachePolicy
+from kvcachepolicy.base import KVCachePolicy
+from kvcachepolicy.s3_fifo import S3FIFO
 from kvstore import KVCacheStore
 
 
@@ -48,7 +49,7 @@ def load_input(path: str) -> List[Tuple[List[int], int]]:
     return traces
 
 
-def evaluate(policy: KVCachePolicy, traces: Iterable[Tuple[List[int], int]]):
+def evaluate(policy: KVCachePolicy, traces: Iterable[Tuple[List[int], int]]) -> dict:
     total = 0
     hits = 0
     for prefix_ids, req_type in traces:
@@ -165,7 +166,7 @@ def main():
                 start_time = time.time()
                 traces = load_input(input_path)
                 store = KVCacheStore(capacity=capacity)
-                policy = KVCachePolicy(store=store)
+                policy = S3FIFO(store=store)
                 stats = evaluate(policy, traces)
                 duration = time.time() - start_time
 
