@@ -11,9 +11,7 @@
 
 ## 输入数据格式
 
-输入文件不再包含容量信息。每一行都是一条请求/访问记录，格式如下：
-
-`{prefix_hash_id 列表} type`
+每一行都是一条请求/访问记录，格式类似：`{prefix_hash_id 列表} type`
 
 示例（`input_samples/sample1`）：
 
@@ -24,55 +22,62 @@
 ```
 
 说明：
-- 缓存容量现在通过命令行参数指定。
 - 每条记录的花括号内是该请求的 `prefix_hash_id` 访问序列；空格后的最后一个整数是该请求的 `type`。
 - 评测时会按序逐个访问花括号内的 `prefix_hash_id`，对每次访问统计命中或未命中，并根据所选策略进行插入/淘汰。
 
 ## 运行评测
 
-评测脚本现在通过命令行参数来控制。
+评测流程现在由一个配置文件 `config/test.yaml` 驱动。您需要在此文件中定义要测试的数据集以及每个数据集对应的容量列表。
 
-- **评测所有样本文件**（默认容量见文件args）：
-  ```bash
-  python3 test.py
-  ```
+1.  **配置测试任务**
 
-- **评测所有样本文件，并指定一个统一的容量**：
-  ```bash
-  python3 test.py --capacity 1000
-  ```
+    编辑 `config/test.yaml` 文件。`tests` 列表下的每个条目都代表一个测试任务：
+    - `file`: `input_samples` 目录下的样本文件名。
+    - `capacities`: 一个或多个要在此样本上测试的容量值。脚本会自动按从小到大的顺序进行测试。
 
-- **仅评测单个指定的样本文件**：
-  ```bash
-  python3 test.py --sample sample1 --capacity 500
-  ```
+    示例 `config/test.yaml`:
+    ```yaml
+    tests:
+      - file: "sample1"
+        capacities: [3, 5, 10]
 
-- **为多个样本文件分别指定容量**：
-  （假设 `input_samples` 目录下按字母顺序有 `sample1`, `sample2` 两个文件）
-  ```bash
-  python3 test.py --capacity 500 1000
-  ```
+      - file: "conversation_trace"
+        capacities: [1000, 5000, 10000, 20000]
+    ```
+
+2.  **执行评测**
+
+    配置完成后，直接运行评测脚本即可：
+    ```bash
+    python3 test.py
+    ```
+    脚本将自动加载 [test.yaml](http://_vscodecontentref_/1) 并执行其中定义的所有测试。
+
+    如果您想使用其他配置文件，可以将其路径作为参数传入：
+    ```bash
+    python3 test.py path/to/your/config.yaml
+    ```
 
 ## 输出说明
 
-脚本会为每个测试的样本输出如下指标：
+脚本会为每个测试的数据集输出两类结果：
 
-- `Total requests`: 总请求块数
-- `Hits`: 命中次数
-- `Misses`: 未命中次数
-- `Hit Ratio`: 命中率 (`hits/total`)
-- `Time elapsed`: 运行耗时
+1.  **控制台输出**:
+    对于配置文件中定义的每个数据集和容量组合，都会打印详细的统计指标。
+    ```
+    ==== Testing Dataset: conversation_trace ====
+      --- Running with capacity: 1000 ---
+        Total requests:   288,500
+        Hits:             2,004
+        Misses:           286,496
+        Hit Ratio:        0.69497%
+        Time elapsed:     0.29680s
+    ```
 
-示例输出：
-
-```
-=== Testing Sample: conversation_trace (capacity=1000) ===
-  Total requests:   288,500
-  Hits:             2,004
-  Misses:           286,496
-  Hit Ratio:        0.69%
-  Time elapsed:     0.297s
-```
+2.  **图表输出**:
+    为每个数据集生成一张命中率（Hit Ratio）随容量（Capacity）变化的折线图。
+    - 图表保存在 [output](http://_vscodecontentref_/2) 目录下。
+    - 文件名包含数据集名称和运行时间戳，以防止覆盖，例如 `conversation_trace_20251017_143000.png`。
 
 ## 请自行预处理一下样例，可用于测试
 
