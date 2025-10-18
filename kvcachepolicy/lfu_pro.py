@@ -1,10 +1,8 @@
-from collections import deque
 from kvstore import KVCacheStore
-from collections import defaultdict
-import time
+from kvcachepolicy import KVCachePolicy
 
 
-class KVCachePolicy:
+class LFU_PRO(KVCachePolicy):
     """
     LFU 缓存淘汰策略
     基于访问频率进行缓存淘汰，优先淘汰访问频率最低的缓存项。

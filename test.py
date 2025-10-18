@@ -177,6 +177,8 @@ def main():
                     policy = S3FIFO(store=store)
                 elif args.policy == "LFU":
                     policy = LFU(store=store)
+                elif args.policy == "LRU_PRO":
+                    policy = LFU_PRO(store=store)
                 elif args.policy == "GDFS":
                     policy = GDFS(store=store)
                 elif args.policy == "S3FIFO_Prio":
