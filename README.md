@@ -4,7 +4,8 @@
 
 ## 目录结构
 
-- `kvcachepolicy.py`：缓存淘汰策略（当前实现为 FIFO，内部仅调用 store 的 `add/delete`）。
+- `kvcachepolicy/`：
+  - 缓存淘汰策略，其中提供多种不同的缓存淘汰策略。如 `kvcachepolicy/s3_fifo.py` 提供 S3-FIFO 的实现策略。
 - `kvstore.py`：简易 KV 缓存存储抽象，支持容量控制与增删查（容量在此处设定并强制）。
 - `test.py`：评测脚本，读取输入数据并计算命中率。
 - `input_samples/`：示例输入数据。
@@ -38,33 +39,37 @@
     示例 `config/test.yaml`:
     ```yaml
     tests:
-      - file: "sample1"
-        capacities: [3, 5, 10]
+      - file: "kimi_sample_1"
+        capacities: [246, 493, 987, ...]
 
-      - file: "conversation_trace"
-        capacities: [1000, 5000, 10000, 20000]
+      - file: "qwenB_sample"
+        capacities: [46383, 92767, 185535, ...]
     ```
 
 2.  **执行评测**
 
     配置完成后，直接运行评测脚本即可：
-    ```bash
-    python3 test.py
-    ```
-    脚本将自动加载 [test.yaml](http://_vscodecontentref_/1) 并执行其中定义的所有测试。
+      ```bash
+      python3 test.py
+      ```
+      - 脚本将自动加载 [test.yaml](http://_vscodecontentref_/1) 并执行其中定义的所有测试。
 
     如果您想使用其他配置文件，可以将其路径作为参数传入：
-    ```bash
-    python3 test.py path/to/your/config.yaml
-    ```
+      ```bash
+      python3 test.py path/to/your/config.yaml
+      ```
+
+    如果您想对于单一策略进行测试，可以将其作为参数传入：
+      ```bash
+      python3 test.py --policy S3FIFO
+      ```
+
 
 ## 输出说明
 
-脚本会为每个测试的数据集输出两类结果：
-
-1.  **控制台输出**:
-    对于配置文件中定义的每个数据集和容量组合，都会打印详细的统计指标。
-    ```
+**控制台输出**:
+  对于配置文件中定义的每个数据集和容量组合，都会打印详细的统计指标。
+  ```
     ==== Testing Dataset: conversation_trace ====
       --- Running with capacity: 1000 ---
         Total requests:   288,500
@@ -72,12 +77,7 @@
         Misses:           286,496
         Hit Ratio:        0.69497%
         Time elapsed:     0.29680s
-    ```
-
-2.  **图表输出**:
-    为每个数据集生成一张命中率（Hit Ratio）随容量（Capacity）变化的折线图。
-    - 图表保存在 [output](http://_vscodecontentref_/2) 目录下。
-    - 文件名包含数据集名称和运行时间戳，以防止覆盖，例如 `conversation_trace_20251017_143000.png`。
+  ```
 
 ## 请自行预处理一下样例，可用于测试
 
